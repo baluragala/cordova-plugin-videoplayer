@@ -68,36 +68,11 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
       JSONArray targets = args.getJSONArray(0);
       Log.v(LOG_TAG, targets.toString());
       final JSONObject options = args.getJSONObject(1);
-      Iterator iterator = options.keys();
-      final JSONArray optionsArray = new JSONArray();
-
-      while (iterator.hasNext()) {
-        String key = (String) iterator.next();
-        optionsArray.put(options.get(key));
-      }
-      Log.v(LOG_TAG, optionsArray.toString());
-      final String[] paths = new String[targets.length()];
-
-      for (int i = 0; i < targets.length(); i++) {
-        String fileUriStr;
-        String target = targets.getString(i);
-        try {
-          Uri targetUri = resourceApi.remapUri(Uri.parse(target));
-          fileUriStr = targetUri.toString();
-        } catch (IllegalArgumentException e) {
-          fileUriStr = target;
-        }
-
-        Log.v(LOG_TAG, fileUriStr);
-
-        final String path = stripFileProtocol(fileUriStr);
-        paths[i] = path;
-      }
-
+      
       // Create dialog in new thread
       cordova.getActivity().runOnUiThread(new Runnable() {
         public void run() {
-          openVideoDialogs(paths, optionsArray);
+          openVideoDialogs(options);
 
         }
       });
@@ -151,19 +126,24 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
 
 
   @TargetApi(Build.VERSION_CODES.JELLY_BEAN)
-  protected void openVideoDialogs(String[] paths, JSONArray optionsArray) {
+  protected void openVideoDialogs(JSONObject optionsObject) {
     dialogs = new ArrayList<Dialog>();
     videoViews = new ArrayList<VideoView>();
     players = new ArrayList<MediaPlayer>();
-
     JSONObject options = new JSONObject();
-    for (int i = 0; i < paths.length; i++) {
-      String path = paths[i];
+    Iterator iterator = optionsObject.keys();
+    while (iterator.hasNext()) {
+      String key = (String) iterator.next();
+      String path = key;
       try {
-        options = optionsArray.getJSONObject(i);
+        if ((optionsObject.get(key) instanceof java.lang.Integer)) {
+          continue;
+        }
+        options = (JSONObject) optionsObject.get(key);
       } catch (JSONException jse) {
         Log.e(LOG_TAG, jse.getLocalizedMessage());
         jse.printStackTrace();
+        continue;
       }
 
       // Let's create the main dialog
@@ -193,36 +173,28 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
       player.setLooping(true);
       players.add(player);
 
-      if (path.startsWith(ASSETS)) {
-        String f = path.substring(15);
-        Log.v(LOG_TAG, "In path.startsWith(ASSETS) " + f);
-        AssetFileDescriptor fd = null;
-        try {
-          fd = cordova.getActivity().getAssets().openFd(f);
-          player.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength());
-        } catch (Exception e) {
-          Log.v(LOG_TAG, "In player.setDataSource(fd.getFileDescriptor(), fd.getStartOffset(), fd.getLength())");
-          e.printStackTrace(System.out);
-          PluginResult result = new PluginResult(PluginResult.Status.ERROR, e.getLocalizedMessage());
-          result.setKeepCallback(false); // release status callback in JS side
-          callbackContext.sendPluginResult(result);
-          callbackContext = null;
-          return;
-        }
-      } else {
-        try {
-          player.setDataSource(path);
-        } catch (Exception e) {
-          PluginResult result = new PluginResult(PluginResult.Status.ERROR, e.getLocalizedMessage());
-          result.setKeepCallback(false); // release status callback in JS side
-          callbackContext.sendPluginResult(result);
-          callbackContext = null;
-          return;
-        }
+      try {
+        player.setDataSource(path);
+      } catch (Exception e) {
+        PluginResult result = new PluginResult(PluginResult.Status.ERROR, e.getLocalizedMessage());
+        result.setKeepCallback(false); // release status callback in JS side
+        callbackContext.sendPluginResult(result);
+        callbackContext = null;
+        return;
       }
 
       try {
-        float volume = Float.valueOf(options.getString("volume"));
+        String volumeStr = "0";
+        try {
+          volumeStr = options.getString("volume");
+        } catch (JSONException jse) {
+          PluginResult result = new PluginResult(PluginResult.Status.ERROR, jse.getLocalizedMessage());
+          result.setKeepCallback(false); // release status callback in JS side
+          callbackContext.sendPluginResult(result);
+          callbackContext = null;
+          return;
+        }
+        float volume = Float.valueOf(volumeStr);
         Log.d(LOG_TAG, "setVolume: " + volume);
         player.setVolume(volume, volume);
       } catch (Exception e) {
@@ -235,7 +207,16 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
 
       if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.JELLY_BEAN) {
         try {
-          int scalingMode = options.getInt("scalingMode");
+          int scalingMode = 1;
+          try {
+            scalingMode = options.getInt("scalingMode");
+          } catch (JSONException jse) {
+            PluginResult result = new PluginResult(PluginResult.Status.ERROR, jse.getLocalizedMessage());
+            result.setKeepCallback(false); // release status callback in JS side
+            callbackContext.sendPluginResult(result);
+            callbackContext = null;
+            return;
+          }
           switch (scalingMode) {
             case MediaPlayer.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING:
               Log.d(LOG_TAG, "setVideoScalingMode VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING");
@@ -300,12 +281,25 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
         lp.height = videoHeight;
         int x = (int) (-widthCenter + left + videoWidthCenter);
         int y = (int) (-heightCenter + top + videoHeightCenter);
-        lp.x = left > widthCenter ? Math.abs(x) : -Math.abs(x);
-        lp.y = top > heightCenter ? Math.abs(y) : -Math.abs(y);
-        Log.v(LOG_TAG, "x :" + lp.x);
-        Log.v(LOG_TAG, "left :" + left);
+        lp.x = left + videoWidthCenter > widthCenter ? Math.abs(x) : -Math.abs(x);
+        lp.y = top + videoHeightCenter > heightCenter ? Math.abs(y) : -Math.abs(y);
 
+
+        Log.v(LOG_TAG, "density :" + density);
+        Log.v(LOG_TAG, "width :" + width);
+        Log.v(LOG_TAG, "height :" + height);
+        Log.v(LOG_TAG, "widthCenter :" + widthCenter);
+        Log.v(LOG_TAG, "heightCenter :" + heightCenter);
+
+        Log.v(LOG_TAG, "videoWidth :" + videoWidth);
+        Log.v(LOG_TAG, "videoHeight :" + videoHeight);
+        Log.v(LOG_TAG, "videoWidthCenter :" + videoWidthCenter);
+        Log.v(LOG_TAG, "videoHeightCenter :" + videoHeightCenter);
+
+
+        Log.v(LOG_TAG, "x :" + lp.x);
         Log.v(LOG_TAG, "y :" + lp.y);
+        Log.v(LOG_TAG, "left :" + left);
         Log.v(LOG_TAG, "top :" + top);
 
       } catch (JSONException jse) {
