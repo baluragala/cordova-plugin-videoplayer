@@ -134,7 +134,7 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
     Iterator iterator = optionsObject.keys();
     while (iterator.hasNext()) {
       String key = (String) iterator.next();
-      String path = key;
+     
       try {
         if ((optionsObject.get(key) instanceof java.lang.Integer)) {
           continue;
@@ -174,6 +174,7 @@ public class VideoPlayer extends CordovaPlugin implements OnCompletionListener, 
       players.add(player);
 
       try {
+        String path = options.getString("path");
         player.setDataSource(path);
       } catch (Exception e) {
         PluginResult result = new PluginResult(PluginResult.Status.ERROR, e.getLocalizedMessage());
